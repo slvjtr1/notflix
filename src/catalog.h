@@ -5,8 +5,8 @@
 
 const char *field(const cJSON *obj, const char *key);
 bool web_url(const char *url);
-char *resource_url(const char *manifest, const char *resource, const char *type,
-                   const char *id, const char *search);
+char *resource_url(const char *manifest, const char *resource, const char *type, const char *id,
+                   const char *search);
 bool has_resource(const cJSON *manifest, const char *resource, const char *type);
 bool searchable(const cJSON *catalog);
 bool plain_stream(const cJSON *stream);

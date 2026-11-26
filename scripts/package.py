@@ -48,7 +48,7 @@ arm = subprocess.check_output(["readelf","-h",binary],text=True)
 assert re.search(r"Machine:\s+ARM\b",arm)
 # Redistribute Ubuntu's Mozilla trust store for verified TLS on older firmware.
 shutil.copy2("/etc/ssl/certs/ca-certificates.crt",stage/"assets/ca.pem")
-subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-f","lavfi","-i","testsrc2=size=640x360:rate=30","-f","lavfi","-i","sine=frequency=440:sample_rate=48000","-t","5","-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac","-movflags","+faststart",str(stage/"assets/test.mp4")],check=True)
+subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-f","lavfi","-i","smptebars=size=640x360:rate=30","-f","lavfi","-i","anullsrc=r=48000:cl=stereo","-t","65","-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac","-movflags","+faststart",str(stage/"assets/test.mp4")],check=True)
 subprocess.run(["ares-package",str(stage),"-o",str(dist)],check=True)
 artifact,=dist.glob("*.ipk")
 assert artifact.name.endswith("_arm.ipk"), artifact.name
