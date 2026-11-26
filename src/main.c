@@ -131,7 +131,7 @@ int main(int argc,char **argv){
 #ifdef WEBOS
         plat_luna_pump();
 #endif
-        video_pump();player_tick();draw();
+        video_pump();player_tick();account_tick();draw();
         Uint64 now=SDL_GetPerformanceCounter();
         if(last){double ms=(now-last)*1000.0/freq;unsigned slots=(unsigned)(ms/ (1000.0/60.0)+0.5);
             if(slots>1)missed+=slots-1;if(ms>worst)worst=ms;}

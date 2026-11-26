@@ -46,7 +46,9 @@ void draw(void){
             fill((SDL_Rect){48,192,1184,53},0x292930,255);
             size_t len=strlen(s->input),off=len>73?len-73:0;
             while(off<len && ((unsigned char)s->input[off]&0xc0)==0x80)off++;
-            label(62,203,1150,BODY,0xffffff,s->input+off);
+            if(s->mode==UNLOCK || s->mode==NEW_PIN){char mask[16]={0};memset(mask,'*',SDL_min(len,sizeof mask-1));label(62,203,1150,BODY,0xffffff,mask);}
+            else label(62,203,1150,BODY,0xffffff,s->input+off);
+            if(s->note[0])label(55,635,1160,SMALL,0xffffff,s->note);
         }else if(s->note[0])wrapped(50,177,1170,s->note);
     }
     int cols=columns(s),n=cJSON_GetArraySize(s->rows);

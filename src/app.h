@@ -2,13 +2,14 @@
 #include "view.h"
 #include "core/video.h"
 typedef enum { HOME, CATALOGS, TITLES, DETAIL, SOURCES, LIBRARY, SETTINGS, ADDONS,
-               KEYBOARD, PLAYER, TRACKS, LANGUAGES, PROFILES, DOWNLOADS, CONFIRM } Page;
+               KEYBOARD, PLAYER, TRACKS, LANGUAGES, PROFILES, DOWNLOADS, CONFIRM, ACCOUNT } Page;
 typedef enum { OPEN_MOVIES,OPEN_SHOWS,SEARCH,OPEN_LIBRARY,OPEN_SETTINGS,OPEN_ADDONS,
                OPEN_CATALOG,OPEN_TITLE,FETCH_STREAMS,PLAY_STREAM,SAVE_TITLE,ADD_MANIFEST,
                REMOVE_ADDON,DIRECT_URL,TOGGLE_PLAY,SEEK_BACK,SEEK_NEXT,AUDIO,SUBTITLES,
                SELECT_AUDIO,SELECT_SUB,OPEN_LANG,SET_LANG,OPEN_PROFILES,SET_PROFILE,ADD_PROFILE,
                OPEN_DOWNLOADS,GET_FILE,PLAY_LOCAL,TEST_CLIP,GO_BACK,RETRY,INPUT_KEY,
-               PLAY_FIRST,TOGGLE_AUTO,CONTINUE_ROW,PICK,FORGET_FILE } Action;
+               PLAY_FIRST,TOGGLE_AUTO,CONTINUE_ROW,PICK,FORGET_FILE,ADD_KIDS,NEW_PIN,UNLOCK,
+               OPEN_ACCOUNT,PAIR_ACCOUNT,SYNC_ACCOUNT,DISCONNECT_ACCOUNT } Action;
 typedef struct {
     Page page;
     unsigned token;
@@ -41,4 +42,7 @@ void player_tick(void);
 void init_state(void);
 void reload_language(void);
 void capture_progress(void);
+void account_action(Action a);
+void account_reply(Screen *s,Request *r);
+void account_tick(void);
 

@@ -1,5 +1,6 @@
 #include "app.h"
 #include "platform/plat.h"
+#include "family.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,6 +66,7 @@ void back(void){
 }
 void row(Screen *s,Action action,const char *name,const cJSON *item,const char *url){
     if(!s || cJSON_GetArraySize(s->rows)>=300)return;
+    if((action==OPEN_TITLE || action==PLAY_LOCAL) && !allowed_title(profile,item))return;
     cJSON *r=cJSON_CreateObject();put_number(r,"action",action);put_string(r,"name",name && *name?name:"Untitled");
     if(item)cJSON_AddItemToObject(r,"item",cJSON_Duplicate(item,1));
     if(url)put_string(r,"url",url);
@@ -113,6 +115,7 @@ static void search_for(const char *term){
 static void detail_actions(Screen *s){
     cJSON_Delete(s->rows);s->rows=cJSON_CreateArray();cJSON *m=s->meta;
     snprintf(s->note,sizeof s->note,"%s",field(m,"description"));
+    if(!allowed_title(profile,m)){snprintf(s->note,sizeof s->note,"Outside the profile age limit.");return;}
     bool series=!strcmp(field(m,"type"),"series");
     if(!series)row(s,FETCH_STREAMS,tr("Play"),m,NULL);
     bool saved=find_title(array_field(profile,"library"),field(m,"type"),field(m,"id"))>=0;
@@ -128,6 +131,7 @@ static void detail_actions(Screen *s){
     if(s->focus>=cJSON_GetArraySize(s->rows))s->focus=0;
 }
 static void open_detail(cJSON *m){
+    if(!allowed_title(profile,m))return;
     Screen *s=push(DETAIL,name_of(m));if(!s)return;
     s->meta=cJSON_Duplicate(m,1);detail_actions(s);
     cJSON *a;cJSON_ArrayForEach(a,array_field(db,"addons"))if(has_resource(a,"meta",field(m,"type"))){
@@ -136,10 +140,13 @@ static void open_detail(cJSON *m){
     }
 }
 static void sources(cJSON *m){
-    Screen *parent=current(),*s=push(SOURCES,tr("Sources"));if(!s)return;
+    Screen *parent=current();
+    if(!allowed_title(profile,parent->page==DETAIL?parent->meta:m))return;
+    Screen *s=push(SOURCES,tr("Sources"));if(!s)return;
     s->meta=cJSON_Duplicate(m,1);
     const char *type=field(parent->meta,"type");if(!*type)type=field(m,"type");
     put_string(s->meta,"type",type);
+    if(parent->page==DETAIL && kids_active(profile))put_string(s->meta,"certification", *field(parent->meta,"certification")?field(parent->meta,"certification"):*field(parent->meta,"ageRating")?field(parent->meta,"ageRating"):field(parent->meta,"mpaaRating"));
     if(!*field(s->meta,"name"))put_string(s->meta,"name",name_of(m));
     s->automatic=cJSON_IsTrue(cJSON_GetObjectItem(db,"autoplay"));
     cJSON *a;cJSON_ArrayForEach(a,array_field(db,"addons"))if(has_resource(a,"stream",type)){
@@ -197,10 +204,11 @@ void player_tick(void){
 }
 static void settings(void){
     Screen *s=push(SETTINGS,tr("Settings"));if(!s)return;
+    if(kids_active(profile)){row(s,UNLOCK,tr("Switch profile"),NULL,NULL);return;}
     row(s,OPEN_ADDONS,tr("Addons"),NULL,NULL);row(s,DIRECT_URL,tr("Open media URL"),NULL,NULL);
     row(s,OPEN_PROFILES,tr("Profiles"),NULL,NULL);row(s,OPEN_LANG,tr("Language"),NULL,NULL);
     row(s,OPEN_DOWNLOADS,tr("Downloads"),NULL,NULL);row(s,TOGGLE_AUTO,cJSON_IsTrue(cJSON_GetObjectItem(db,"autoplay"))?"Autoplay · On":"Autoplay · Off",NULL,NULL);
-    row(s,TEST_CLIP,tr("Playback test"),NULL,NULL);
+    row(s,TEST_CLIP,tr("Playback test"),NULL,NULL);row(s,OPEN_ACCOUNT,tr("Nuvio account"),NULL,NULL);
 }
 static void addon_list(Screen *s){
     cJSON_Delete(s->rows);s->rows=cJSON_CreateArray();row(s,ADD_MANIFEST,tr("Add manifest URL"),NULL,NULL);
@@ -217,6 +225,10 @@ static void submit_input(Screen *s){
     if((mode==ADD_MANIFEST || mode==DIRECT_URL) && !web_url(value)){
         snprintf(s->note,sizeof s->note,"Enter a full http:// or https:// address.");return;
     }
+    if(mode==NEW_PIN && !pin_set(db,value)){snprintf(s->note,sizeof s->note,"Choose a four-digit parent PIN.");return;}
+    if(mode==UNLOCK && !pin_matches(db,value)){s->input[0]=0;snprintf(s->note,sizeof s->note,"Incorrect PIN.");return;}
+    if((mode==ADD_PROFILE || mode==ADD_KIDS) && strlen(value)>64){snprintf(s->note,sizeof s->note,"Use a name under 65 bytes.");return;}
+    if(mode==ADD_PROFILE || mode==ADD_KIDS){cJSON *v;cJSON_ArrayForEach(v,array_field(db,"profiles"))if(!strcmp(field(v,"name"),value)){snprintf(s->note,sizeof s->note,"Choose a different profile name.");return;}}
     if(mode==ADD_MANIFEST){
         char *probe=resource_url(value,"meta","movie","id",NULL);
         if(!probe){snprintf(s->note,sizeof s->note,"Enter a URL ending in /manifest.json");return;}
@@ -226,8 +238,10 @@ static void submit_input(Screen *s){
     if(mode==SEARCH)search_for(value);
     else if(mode==DIRECT_URL){cJSON *m=cJSON_CreateObject();put_string(m,"name",tr("Direct media"));play(value,m);cJSON_Delete(m);}
     else if(mode==ADD_MANIFEST)fetch(current(),value);
-    else if(mode==ADD_PROFILE){
-        cJSON *p=cJSON_CreateObject();put_string(p,"name",value);
+    else if(mode==NEW_PIN){save();keyboard(ADD_KIDS,tr("Name the KIDS profile"));}
+    else if(mode==UNLOCK){profile=cJSON_GetArrayItem(array_field(db,"profiles"),0);put_number(db,"profileIndex",0);save();while(depth)back();load_home();}
+    else if(mode==ADD_PROFILE || mode==ADD_KIDS){
+        cJSON *p=cJSON_CreateObject();put_string(p,"name",value);if(mode==ADD_KIDS)put_number(p,"maxAge",7);
         cJSON_AddItemToArray(array_field(db,"profiles"),p);row(current(),SET_PROFILE,value,p,NULL);save();
     }
 }
@@ -253,6 +267,9 @@ void activate(void){
     case OPEN_MOVIES: catalogs("movie");break;
     case OPEN_SHOWS: catalogs("series");break;
     case SEARCH:case DIRECT_URL:case ADD_MANIFEST:case ADD_PROFILE: keyboard(a,field(r,"name"));break;
+    case ADD_KIDS:if(*field(db,"pinHash"))keyboard(ADD_KIDS,tr("Name the KIDS profile"));else keyboard(NEW_PIN,tr("Set a four-digit parent PIN"));break;
+    case UNLOCK:keyboard(UNLOCK,tr("Enter parent PIN"));break;
+    case OPEN_ACCOUNT:case PAIR_ACCOUNT:case SYNC_ACCOUNT:case DISCONNECT_ACCOUNT:account_action(a);break;
     case OPEN_SETTINGS:settings();break;
     case OPEN_ADDONS:p=push(ADDONS,tr("Addons"));if(p)addon_list(p);break;
     case OPEN_CATALOG:p=push(TITLES,field(r,"name"));if(p){p->grid=true;fetch(p,url);}break;
@@ -303,10 +320,10 @@ void activate(void){
         cJSON_Delete(langs);break;}
     case SET_LANG:put_string(db,"language",url);reload_language();save();while(depth)back();load_home();break;
     case OPEN_PROFILES:{
-        p=push(PROFILES,tr("Profiles"));if(!p)break;row(p,ADD_PROFILE,tr("Add profile"),NULL,NULL);
+        p=push(PROFILES,tr("Profiles"));if(!p)break;row(p,ADD_PROFILE,tr("Add profile"),NULL,NULL);row(p,ADD_KIDS,tr("Add KIDS profile (ages 7 and under)"),NULL,NULL);
         cJSON *v;cJSON_ArrayForEach(v,array_field(db,"profiles"))row(p,SET_PROFILE,field(v,"name"),v,NULL);break;}
     case SET_PROFILE:{
-        int i=s->focus-1;profile=cJSON_GetArrayItem(array_field(db,"profiles"),i);put_number(db,"profileIndex",i);
+        int i=s->focus-2;profile=cJSON_GetArrayItem(array_field(db,"profiles"),i);put_number(db,"profileIndex",i);
         save();while(depth)back();load_home();break;}
     case TOGGLE_AUTO:{
         bool on=cJSON_IsTrue(cJSON_GetObjectItem(db,"autoplay"));
@@ -331,6 +348,7 @@ void handle_reply(Request *r){
     }
     Screen *s=NULL;for(int n=0;n<=depth;n++)if(stack[n].token==r->owner)s=&stack[n];
     if(!s)return;if(s->pending)s->pending--;
+    if(r->operation){account_reply(s,r);return;}
     if(r->error[0]){snprintf(s->note,sizeof s->note,"%s",r->error);return;}
     cJSON *v;
     if(s->page==ADDONS){

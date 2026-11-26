@@ -41,14 +41,21 @@ static int progress(void *ctx,curl_off_t total,curl_off_t now,curl_off_t u,curl_
     (void)ctx;(void)total;(void)now;(void)u;(void)sent; return SDL_AtomicGet(&quitting);
 }
 static void perform(Request *r) {
-    CURL *h=curl_easy_init();
+    CURL *h=curl_easy_init();struct curl_slist *headers=NULL;
     Buffer b={.limit=r->type==ART_JOB?8*1024*1024:4*1024*1024};
     FILE *file=NULL; char part[1100]="";
     if(!h) { snprintf(r->error,sizeof r->error,"Network initialization failed"); return; }
     curl_easy_setopt(h,CURLOPT_URL,r->url);
     curl_easy_setopt(h,CURLOPT_PROTOCOLS,(long)(CURLPROTO_HTTP|CURLPROTO_HTTPS));
     curl_easy_setopt(h,CURLOPT_REDIR_PROTOCOLS,(long)(CURLPROTO_HTTP|CURLPROTO_HTTPS));
-    curl_easy_setopt(h,CURLOPT_FOLLOWLOCATION,1L);
+    curl_easy_setopt(h,CURLOPT_FOLLOWLOCATION,r->operation?0L:1L);
+    if(r->operation){
+        char header[8192];headers=curl_slist_append(headers,"Accept: application/json");
+        if(r->api_key){snprintf(header,sizeof header,"apikey: %s",r->api_key);headers=curl_slist_append(headers,header);}
+        if(r->bearer){snprintf(header,sizeof header,"Authorization: Bearer %s",r->bearer);headers=curl_slist_append(headers,header);}
+        if(r->body){headers=curl_slist_append(headers,"Content-Type: application/json");curl_easy_setopt(h,CURLOPT_POSTFIELDS,r->body);}
+        curl_easy_setopt(h,CURLOPT_HTTPHEADER,headers);
+    }
     curl_easy_setopt(h,CURLOPT_MAXREDIRS,5L);
     curl_easy_setopt(h,CURLOPT_FAILONERROR,1L);
     curl_easy_setopt(h,CURLOPT_ACCEPT_ENCODING,"");
@@ -83,7 +90,7 @@ static void perform(Request *r) {
         if(rw) r->image=IMG_Load_RW(rw,1);
     }
 done:
-    curl_easy_cleanup(h); free(b.bytes);
+    curl_slist_free_all(headers);curl_easy_cleanup(h); free(b.bytes);
 }
 static int worker(void *ctx) {
     Queue *q=ctx;
@@ -111,10 +118,19 @@ bool request(JobType type,unsigned owner,const char *url,const char *path) {
     if(!r->url || (path&&!r->path)){request_free(r);return false;}
     SDL_LockMutex(lock); append(&jobs[type],r); SDL_CondBroadcast(wake); SDL_UnlockMutex(lock);return true;
 }
+bool nuvio_request(unsigned owner,int operation,const char *endpoint,const char *key,const char *token,const cJSON *body){
+    if(!endpoint || *endpoint!='/' || strlen(endpoint)>2048 || (key && (strlen(key)>4096 || strpbrk(key,"\r\n"))) || (token && (strlen(token)>7000 || strpbrk(token,"\r\n"))))return false;
+    Request *r=calloc(1,sizeof *r);if(!r)return false;
+    char url[2112];snprintf(url,sizeof url,"https://api.nuvio.tv%s",endpoint);
+    r->url=strdup(url);r->type=JSON_JOB;r->owner=owner;r->operation=operation;
+    if(key)r->api_key=strdup(key);if(token)r->bearer=strdup(token);if(body)r->body=cJSON_PrintUnformatted(body);
+    if(!r->url || (key&&!r->api_key) || (token&&!r->bearer) || (body&&!r->body)){request_free(r);return false;}
+    SDL_LockMutex(lock);append(&jobs[JSON_JOB],r);SDL_CondBroadcast(wake);SDL_UnlockMutex(lock);return true;
+}
 Request *completed(void) { SDL_LockMutex(lock); Request *r=pop(&results); SDL_UnlockMutex(lock);return r; }
 void request_free(Request *r) {
     if(!r)return;
-    free(r->url);free(r->path);cJSON_Delete(r->json);if(r->image)SDL_FreeSurface(r->image);free(r);
+    free(r->url);free(r->path);free(r->api_key);free(r->bearer);cJSON_free(r->body);cJSON_Delete(r->json);if(r->image)SDL_FreeSurface(r->image);free(r);
 }
 void client_stop(void) {
     SDL_AtomicSet(&quitting,1);
