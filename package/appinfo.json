@@ -1,0 +1,11 @@
+{
+  "id": "tv.notflix.native",
+  "version": "0.1.0",
+  "vendor": "Notflix webOS contributors",
+  "type": "native",
+  "main": "notflix",
+  "title": "Notflix",
+  "icon": "icon.png",
+  "iconColor": "#111114",
+  "bgColor": "#111114"
+}

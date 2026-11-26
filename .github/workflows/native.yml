@@ -1,0 +1,46 @@
+name: Native webOS
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install desktop dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev libcurl4-openssl-dev xvfb ffmpeg
+      - name: Cache verified LG community SDK
+        id: sdk
+        uses: actions/cache@v4
+        with:
+          path: /tmp/notflix-sdk
+          key: notflix-buildroot-2026.08-v1
+      - name: Download and relocate SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          curl -fL --retry 3 https://github.com/openlgtv/buildroot-nc4/releases/download/2026.08-webos/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz -o /tmp/sdk.tgz
+          echo '2230a6351e5cce6fcb9d4fdcb4697335f223995401ef969c81744aaeb14c5344  /tmp/sdk.tgz' | sha256sum -c
+          mkdir /tmp/notflix-sdk
+          tar xzf /tmp/sdk.tgz -C /tmp/notflix-sdk --strip-components=1
+          /tmp/notflix-sdk/relocate-sdk.sh
+      - name: Build and test desktop client
+        run: |
+          cmake -S . -B build-host -G Ninja -DSANITIZE=ON
+          cmake --build build-host
+          ctest --test-dir build-host --output-on-failure
+      - name: Build native ARM client
+        run: |
+          cmake -S . -B build-tv -G Ninja -DWEBOS=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/tmp/notflix-sdk/share/buildroot/toolchainfile.cmake
+          cmake --build build-tv
+      - name: Build and inspect IPK
+        run: |
+          npm install --prefix "$RUNNER_TEMP/lgcli" @webos-tools/cli@3.2.6
+          export PATH="$RUNNER_TEMP/lgcli/node_modules/.bin:$PATH"
+          python3 scripts/package.py build-tv/notflix /tmp/notflix-sdk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notflix-webos
+          path: dist/*
+          if-no-files-found: error
+
