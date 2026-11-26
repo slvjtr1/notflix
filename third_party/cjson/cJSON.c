@@ -89,7 +89,8 @@ typedef struct {
     const unsigned char *json;
     size_t position;
 } error;
-static error global_error = { NULL, 0 };
+/* Notflix has independent JSON readers for the UI, HTTP client and paired remote. */
+static _Thread_local error global_error = { NULL, 0 };
 
 CJSON_PUBLIC(const char *) cJSON_GetErrorPtr(void)
 {

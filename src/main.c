@@ -18,25 +18,25 @@ bool running=true,test_mode;
 char assets[896],data_dir[896],state_path[1024];
 static SDL_Window *window;
 static SDL_Renderer *renderer;
+static FILE *diagnostics;
 static SDL_atomic_t background;
 volatile int saver_tv_hold;
 int app_behind(void){return SDL_AtomicGet(&background);}
 const char *plat_device_name(void){return "LG webOS TV";}
 
 static bool setup_paths(void){
-    if(!getcwd(assets,sizeof assets-16))return false;
-    char *base=SDL_GetBasePath();
 #ifdef WEBOS
-    if(!base || snprintf(assets,sizeof assets,"%sassets",base)>=(int)sizeof assets){SDL_free(base);return false;}
+    char exe[880];ssize_t n=readlink("/proc/self/exe",exe,sizeof exe-1);if(n<=0)return false;
+    exe[n]=0;char *slash=strrchr(exe,'/');if(!slash)return false;*slash=0;
+    snprintf(assets,sizeof assets,"%s/assets",exe);
 #else
-    strcat(assets,"/assets");
+    if(!getcwd(assets,sizeof assets-16))return false;strcat(assets,"/assets");
 #endif
-    SDL_free(base);
     if(test_mode){snprintf(data_dir,sizeof data_dir,"/tmp");}
     else {
         const char *dir=getenv("NOTFLIX_DATA");
 #ifdef WEBOS
-        const char *choices[]={dir,"/media/developer/.tv.notflix.native","/media/internal/.tv.notflix.native"};
+        const char *choices[]={dir,"/media/developer/apps/usr/palm/data/tv.notflix.native","/media/developer/.tv.notflix.native","/media/internal/.tv.notflix.native"};
 #else
         char *pref=SDL_GetPrefPath("Notflix","tv.notflix.native");
         const char *choices[]={dir,pref};
@@ -129,7 +129,11 @@ int main(int argc,char **argv){
     SDL_SetHint(SDL_HINT_WEBOS_ACCESS_POLICY_KEYS_EXIT,"true");
     SDL_SetHint(SDL_HINT_RENDER_DRIVER,"opengles2");
 #endif
-    if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_TIMER) || TTF_Init() || curl_global_init(CURL_GLOBAL_DEFAULT))return 1;
+    if(!setup_paths()){fprintf(stderr,"Notflix: no writable app storage or asset path.\n");return 1;}
+    if(!test_mode){char path[1024];snprintf(path,sizeof path,"%s/diagnostics.log",data_dir);diagnostics=fopen(path,"w");}
+    if(!diagnostics)diagnostics=stderr;setvbuf(diagnostics,NULL,_IOLBF,0);
+    fprintf(diagnostics,"Starting Notflix 0.1.1\n");
+    if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_TIMER) || TTF_Init() || curl_global_init(CURL_GLOBAL_DEFAULT)){fprintf(diagnostics,"Platform init: %s\n",SDL_GetError());return 1;}
     IMG_Init(IMG_INIT_JPG|IMG_INIT_PNG);
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE,8);
     Uint32 flags=test_mode?SDL_WINDOW_HIDDEN:0;
@@ -138,11 +142,15 @@ int main(int argc,char **argv){
 #endif
     window=SDL_CreateWindow("Notflix",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,WIDTH,HEIGHT,flags);
     if(window)renderer=SDL_CreateRenderer(window,-1,test_mode?SDL_RENDERER_SOFTWARE:SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
-    if(!renderer || !setup_paths()){fprintf(stderr,"Notflix initialization failed: %s\n",SDL_GetError());return 1;}
+    if(!renderer){fprintf(diagnostics,"Renderer creation: %s (window %s)\n",SDL_GetError(),window?"ready":"failed");
+        for(int i=0;i<SDL_GetNumRenderDrivers();i++){SDL_RendererInfo info;if(!SDL_GetRenderDriverInfo(i,&info))fprintf(diagnostics,"available renderer: %s\n",info.name);}
+        return 1;}
+    SDL_RendererInfo info;if(!SDL_GetRendererInfo(renderer,&info))fprintf(diagnostics,"Renderer: %s\n",info.name);
     SDL_RenderSetLogicalSize(renderer,WIDTH,HEIGHT);
     int w,h;SDL_GetRendererOutputSize(renderer,&w,&h);video_set_surface(w,h);
     char ca[1024];snprintf(ca,sizeof ca,"%s/ca.pem",assets);
-    if(!client_start(ca) || !view_open(renderer,assets)){fprintf(stderr,"Notflix assets: %s\n",SDL_GetError());return 1;}
+    if(!client_start(ca) || !view_open(renderer,assets)){fprintf(diagnostics,"Notflix assets: %s\n",SDL_GetError());return 1;}
+    fprintf(diagnostics,"Ready, drawable %d x %d\n",w,h);
     init_state();load_home();int result=0;
     if(test_mode){bool ok=navigation_test();const char *fixture=getenv("NOTFLIX_TEST_MANIFEST");if(ok && fixture)ok=fixture_test(fixture);result=ok?0:2;}
     bool text_active=false;
@@ -162,7 +170,7 @@ int main(int argc,char **argv){
             if(slots>1)missed+=slots-1;if(ms>worst)worst=ms;}
         frames++;last=now;
         if(now-start>=60*freq){
-            fprintf(stderr,"frame sample: %.2f fps, %u estimated missed refreshes, longest %.2f ms\n",frames*(double)freq/(now-start),missed,worst);
+            fprintf(diagnostics,"frame sample: %.2f fps, %u estimated missed refreshes, longest %.2f ms\n",frames*(double)freq/(now-start),missed,worst);
             start=now;frames=missed=0;worst=0;
         }
         if(app_behind())SDL_Delay(50);

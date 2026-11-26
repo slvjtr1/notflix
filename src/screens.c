@@ -199,6 +199,7 @@ static void play(const char *url,cJSON *m){
 void capture_progress(void){
     Screen *s=current();if(s->page!=PLAYER || !*field(s->meta,"id"))return;
     double pos=video_time(),duration=video_duration();if(pos<1)return;
+    queue_progress(s->meta,pos,duration);
     cJSON *h=array_field(profile,"history");int idx=find_title(h,field(s->meta,"type"),field(s->meta,"id"));
     if(idx>=0)cJSON_DeleteItemFromArray(h,idx);
     if(!duration || pos<duration-10){
@@ -306,6 +307,7 @@ void activate(void){
         else snprintf(s->note,sizeof s->note,"Save a title to your library to pick one.");break;}
     case SAVE_TITLE:{
         cJSON *list=array_field(profile,"library");int idx=find_title(list,field(m,"type"),field(m,"id"));
+        queue_library_edit(m,idx>=0);
         if(idx>=0)cJSON_DeleteItemFromArray(list,idx);else cJSON_AddItemToArray(list,cJSON_Duplicate(m,1));
         if(depth && stack[depth-1].page==LIBRARY && idx>=0){
             Screen *lib=&stack[depth-1];cJSON_DeleteItemFromArray(lib->rows,lib->focus);
@@ -408,11 +410,11 @@ void handle_reply(Request *r){
         }
         cJSON_Delete(s->meta);s->meta=features;
         if(cJSON_GetArraySize(features))row(s,OPEN_TITLE,tr("Featured title"),cJSON_GetArrayItem(features,0),NULL);
-    }else if(s->page==ADDONS){
+    }else if(s->page==ADDONS || s->page==ACCOUNT){
         if(!*field(r->json,"id") || !cJSON_IsArray(cJSON_GetObjectItem(r->json,"resources"))){snprintf(s->note,sizeof s->note,"Invalid addon manifest.");return;}
         cJSON *addons=array_field(db,"addons");
         cJSON_ArrayForEach(v,addons)if(!strcmp(field(v,"manifest"),r->url)){snprintf(s->note,sizeof s->note,"Already installed.");return;}
-        put_string(r->json,"manifest",r->url);cJSON_AddItemToArray(addons,r->json);r->json=NULL;addon_list(s);save();snprintf(s->note,sizeof s->note,"Addon installed.");
+        put_string(r->json,"manifest",r->url);cJSON_AddItemToArray(addons,r->json);r->json=NULL;if(s->page==ADDONS)addon_list(s);save();snprintf(s->note,sizeof s->note,"Addon installed.");
     } else if(s->page==TITLES){
         cJSON_ArrayForEach(v,cJSON_GetObjectItem(r->json,"metas"))if(*field(v,"id") && *field(v,"type"))row(s,OPEN_TITLE,name_of(v),v,NULL);
     } else if(s->page==DETAIL){

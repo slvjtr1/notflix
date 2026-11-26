@@ -83,7 +83,7 @@ static void perform(Request *r) {
         if(fclose(file) || (!r->error[0] && rename(part,r->path))) snprintf(r->error,sizeof r->error,"Cannot save download");
         if(r->error[0]) unlink(part);
     } else if(!r->error[0] && r->type==JSON_JOB) {
-        r->json=b.bytes?cJSON_Parse(b.bytes):NULL;
+        r->json=(r->operation && !b.size)?cJSON_CreateNull():(b.bytes?cJSON_Parse(b.bytes):NULL);
         if(!r->json) snprintf(r->error,sizeof r->error,"Invalid provider response");
     } else if(!r->error[0] && r->type==CAPTION_JOB){r->text=b.bytes;b.bytes=NULL;}
     else if(!r->error[0] && b.size) {

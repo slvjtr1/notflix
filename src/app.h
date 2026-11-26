@@ -52,4 +52,6 @@ void party_tick(Screen *s);
 void account_action(Action a);
 void account_reply(Screen *s,Request *r);
 void account_tick(void);
+void queue_library_edit(const cJSON *item,bool remove);
+void queue_progress(const cJSON *item,double pos,double duration);
 

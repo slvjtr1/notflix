@@ -23,7 +23,7 @@ shutil.copy2(binary, stage / "notflix")
 libdir = stage / "lib"
 libdir.mkdir()
 dist.mkdir(exist_ok=True)
-system = re.compile(r"^(?:ld-linux[^/]*|lib(?:c|m|dl|pthread|rt|resolv|util|gcc_s|stdc\+\+|SDL2-2\.0|SDL2|EGL|GLESv2|GL|wayland[^.]*|xkbcommon))\.so(?:\..*)?$")
+system = re.compile(r"^(?:ld-linux[^/]*|lib(?:c|m|dl|pthread|rt|resolv|util|gcc_s|stdc\+\+|SDL2(?:_(?:image|ttf))?-2\.0|SDL2|EGL|GLESv2|GL|wayland[^.]*|xkbcommon))\.so(?:\..*)?$")
 sysroots = list(sdk.glob("*/sysroot"))
 if len(sysroots) != 1:
     raise RuntimeError(f"Unexpected SDK sysroots {sysroots}")
