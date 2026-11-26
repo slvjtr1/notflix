@@ -85,7 +85,8 @@ static void perform(Request *r) {
     } else if(!r->error[0] && r->type==JSON_JOB) {
         r->json=b.bytes?cJSON_Parse(b.bytes):NULL;
         if(!r->json) snprintf(r->error,sizeof r->error,"Invalid provider response");
-    } else if(!r->error[0] && b.size) {
+    } else if(!r->error[0] && r->type==CAPTION_JOB){r->text=b.bytes;b.bytes=NULL;}
+    else if(!r->error[0] && b.size) {
         SDL_RWops *rw=SDL_RWFromConstMem(b.bytes,(int)b.size);
         SDL_Surface *decoded=rw?IMG_Load_RW(rw,1):NULL;
         if(decoded && (decoded->w>640 || decoded->h>640)){
@@ -122,7 +123,7 @@ bool request(JobType type,unsigned owner,const char *url,const char *path) {
     Request *r=calloc(1,sizeof *r); if(!r) return false;
     r->type=type;r->owner=owner;r->url=strdup(url);r->path=path?strdup(path):NULL;
     if(!r->url || (path&&!r->path)){request_free(r);return false;}
-    SDL_LockMutex(lock); append(&jobs[type],r); SDL_CondBroadcast(wake); SDL_UnlockMutex(lock);return true;
+    SDL_LockMutex(lock); append(&jobs[type==CAPTION_JOB?JSON_JOB:type],r); SDL_CondBroadcast(wake); SDL_UnlockMutex(lock);return true;
 }
 bool nuvio_request(unsigned owner,int operation,const char *endpoint,const char *key,const char *token,const cJSON *body){
     if(!endpoint || *endpoint!='/' || strlen(endpoint)>2048 || (key && (strlen(key)>4096 || strpbrk(key,"\r\n"))) || (token && (strlen(token)>7000 || strpbrk(token,"\r\n"))))return false;
@@ -136,7 +137,7 @@ bool nuvio_request(unsigned owner,int operation,const char *endpoint,const char 
 Request *completed(void) { SDL_LockMutex(lock); Request *r=pop(&results); SDL_UnlockMutex(lock);return r; }
 void request_free(Request *r) {
     if(!r)return;
-    free(r->url);free(r->path);free(r->api_key);free(r->bearer);cJSON_free(r->body);cJSON_Delete(r->json);if(r->image)SDL_FreeSurface(r->image);free(r);
+    free(r->url);free(r->path);free(r->text);free(r->api_key);free(r->bearer);cJSON_free(r->body);cJSON_Delete(r->json);if(r->image)SDL_FreeSurface(r->image);free(r);
 }
 void client_stop(void) {
     SDL_AtomicSet(&quitting,1);

@@ -2,6 +2,7 @@
 #include "platform/plat.h"
 #include "family.h"
 #include "companion.h"
+#include "captions.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,9 @@ cJSON *db,*profile,*strings;
 static unsigned sequence;
 static unsigned last_save;
 static double resume_at;
+static Uint32 controls_until;
+void controls_wake(void){controls_until=SDL_GetTicks()+4500;}
+bool controls_visible(void){return !SDL_TICKS_PASSED(SDL_GetTicks(),controls_until) || video_state()!=VID_PLAYING;}
 static char download_path[1024], download_profile[96];
 static cJSON *downloading;
 static const char *default_manifest="https://v3-cinemeta.strem.io/manifest.json";
@@ -63,7 +67,7 @@ Screen *push(Page p,const char *title){
 }
 void back(void){
     if(!depth){running=false;return;}
-    if(current()->page==PLAYER){capture_progress();video_unload();}
+    if(current()->page==PLAYER){party_leave(current());capture_progress();video_unload();captions_clear();}
     free_screen(current());depth--;
 }
 void row(Screen *s,Action action,const char *name,const cJSON *item,const char *url){
@@ -131,6 +135,8 @@ static void detail_actions(Screen *s){
         snprintf(label,sizeof label,"S%02d E%02d   %s",season,episode,name_of(ep));
         row(s,FETCH_STREAMS,label,ep,NULL);
     }
+    cJSON *trailer;cJSON_ArrayForEach(trailer,cJSON_GetObjectItem(m,"trailerStreams")){
+        if(plain_stream(trailer)){row(s,TRAILER,tr("Trailer"),m,field(trailer,"url"));break;}}
     if(s->focus>=cJSON_GetArraySize(s->rows))s->focus=0;
 }
 static void open_detail(cJSON *m){
@@ -149,6 +155,7 @@ static void sources(cJSON *m){
     s->meta=cJSON_Duplicate(m,1);
     const char *type=field(parent->meta,"type");if(!*type)type=field(m,"type");
     put_string(s->meta,"type",type);
+    if(parent->page==DETAIL)put_string(s->meta,"contentId",field(parent->meta,"id"));
     if(parent->page==DETAIL && kids_active(profile))put_string(s->meta,"certification", *field(parent->meta,"certification")?field(parent->meta,"certification"):*field(parent->meta,"ageRating")?field(parent->meta,"ageRating"):field(parent->meta,"mpaaRating"));
     if(!*field(s->meta,"name"))put_string(s->meta,"name",name_of(m));
     s->automatic=cJSON_IsTrue(cJSON_GetObjectItem(db,"autoplay"));
@@ -177,10 +184,12 @@ static void play(const char *url,cJSON *m){
     if(!url || (!web_url(url) && strncmp(url,"file://",7)))return;
     Screen *s=push(PLAYER,m?name_of(m):tr("Player"));if(!s)return;
     s->meta=m?cJSON_Duplicate(m,1):cJSON_CreateObject();
-    put_string(s->meta,"playingUrl",url);
+    controls_wake();captions_clear();put_string(s->meta,"playingUrl",url);
     row(s,TOGGLE_PLAY,tr("Play / pause"),NULL,NULL);row(s,SEEK_BACK,"−10 s",NULL,NULL);row(s,SEEK_NEXT,"+10 s",NULL,NULL);
     row(s,AUDIO,tr("Audio"),NULL,NULL);row(s,SUBTITLES,tr("Subtitles"),NULL,NULL);
     if(web_url(url) && !strstr(url,".m3u") && !strstr(url,".mpd"))row(s,GET_FILE,tr("Download"),NULL,NULL);
+    if(!kids_active(profile) && *field(profile,"nuvioAccess") && *field(s->meta,"id")){
+        row(s,HOST_PARTY,tr("Host watch party"),NULL,NULL);row(s,JOIN_PARTY,tr("Join watch party"),NULL,NULL);row(s,LEAVE_PARTY,tr("Leave watch party"),NULL,NULL);}
     row(s,GO_BACK,tr("Back"),NULL,NULL);
     cJSON *history=array_field(profile,"history");
     int idx=find_title(history,field(s->meta,"type"),field(s->meta,"id"));
@@ -199,7 +208,7 @@ void capture_progress(void){
     save();
 }
 void player_tick(void){
-    Screen *s=current();if(s->page!=PLAYER)return;
+    Screen *s=current();if(s->page!=PLAYER)return;party_tick(s);
     if(resume_at>0 && video_state()==VID_PLAYING && video_duration()>0){if(resume_at<video_duration()-10)video_seek(resume_at);resume_at=0;}
     if(SDL_GetTicks()-last_save>=15000){capture_progress();last_save=SDL_GetTicks();}
     if(video_state()==VID_ERROR)snprintf(s->note,sizeof s->note,"%s",video_error());
@@ -240,6 +249,7 @@ static void submit_input(Screen *s){
     }
     back();
     if(mode==SEARCH)search_for(value);
+    else if(mode==JOIN_PARTY)party_start(current(),value);
     else if(mode==DIRECT_URL){cJSON *m=cJSON_CreateObject();put_string(m,"name",tr("Direct media"));play(value,m);cJSON_Delete(m);}
     else if(mode==ADD_MANIFEST)fetch(current(),value);
     else if(mode==NEW_PIN){save();keyboard(ADD_KIDS,tr("Name the KIDS profile"));}
@@ -252,7 +262,7 @@ static void submit_input(Screen *s){
 static void download(Screen *s){
     if(downloading){snprintf(s->note,sizeof s->note,"A download is already in progress.");return;}
     const char *url=field(s->meta,"playingUrl");
-    char temp[1024];snprintf(temp,sizeof temp,"%s/media-XXXXXX",data_dir);
+    char temp[960];snprintf(temp,sizeof temp,"%s/media-XXXXXX",data_dir);
     int fd=mkstemp(temp);if(fd<0){snprintf(s->note,sizeof s->note,"Storage unavailable.");return;}
     close(fd);unlink(temp);snprintf(download_path,sizeof download_path,"%s.mp4",temp);
     if(request(DOWNLOAD_JOB,0,url,download_path)){
@@ -286,7 +296,8 @@ void activate(void){
     case OPEN_CATALOG:p=push(TITLES,field(r,"name"));if(p){p->grid=true;fetch(p,url);}break;
     case OPEN_TITLE:if(s->page==HOME && cJSON_GetArraySize(s->meta))m=cJSON_GetArrayItem(s->meta,(SDL_GetTicks()/14000)%cJSON_GetArraySize(s->meta));open_detail(m);break;
     case FETCH_STREAMS:sources(m);break;
-    case PLAY_STREAM:play(url,s->meta);break;
+    case PLAY_STREAM:play(url,s->meta);if(current()->page==PLAYER && m){cJSON *subs=cJSON_GetObjectItem(m,"subtitles");if(subs)cJSON_AddItemToObject(current()->meta,"streamSubtitles",cJSON_Duplicate(subs,1));}break;
+    case TRAILER:play(url,NULL);break;
     case OPEN_LIBRARY:case CONTINUE_ROW:
         p=push(LIBRARY,field(r,"name"));if(p){p->grid=true;saved_rows(p,a==OPEN_LIBRARY?"library":"history",a==OPEN_LIBRARY?OPEN_TITLE:FETCH_STREAMS);}break;
     case PICK:{
@@ -311,6 +322,9 @@ void activate(void){
         else if(!strcmp(url,"delete"))erase_text();
         else if(!strcmp(url,"shift"))s->automatic=!s->automatic;
         else {char c[2]={(char)(s->automatic?toupper((unsigned char)url[0]):url[0]),0};type_text(c);}break;
+    case HOST_PARTY:party_start(s,NULL);break;
+    case JOIN_PARTY:keyboard(JOIN_PARTY,tr("Party code for this title"));break;
+    case LEAVE_PARTY:party_leave(s);break;
     case TOGGLE_PLAY:if(video_state()==VID_PAUSED)video_play();else video_pause();break;
     case SEEK_BACK:video_seek(video_time()-10);break;
     case SEEK_NEXT:video_seek(video_time()+10);break;
@@ -319,9 +333,16 @@ void activate(void){
         p=push(TRACKS,field(r,"name"));if(!p)break;
         if(a==SUBTITLES)row(p,SELECT_SUB,tr("Off"),NULL,"-1");
         for(int i=0;i<n;i++){char idx[24];snprintf(idx,sizeof idx,"%d",tracks[i].idx);
-            row(p,a==AUDIO?SELECT_AUDIO:SELECT_SUB,*tracks[i].name?tracks[i].name:tracks[i].lang,NULL,idx);}break;}
+            row(p,a==AUDIO?SELECT_AUDIO:SELECT_SUB,*tracks[i].name?tracks[i].name:tracks[i].lang,NULL,idx);}
+        if(a==SUBTITLES){
+            cJSON *sub;cJSON_ArrayForEach(sub,cJSON_GetObjectItem(s->meta,"streamSubtitles"))
+                if(web_url(field(sub,"url")))row(p,LOAD_CAPTION,field(sub,"lang"),NULL,field(sub,"url"));
+            cJSON *addon;cJSON_ArrayForEach(addon,array_field(db,"addons"))if(has_resource(addon,"subtitles",field(s->meta,"type"))){
+                char *u=resource_url(field(addon,"manifest"),"subtitles",field(s->meta,"type"),field(s->meta,"id"),NULL);fetch(p,u);free(u);}
+        }break;}
     case SELECT_AUDIO:video_select_audio(atoi(url));back();break;
-    case SELECT_SUB:video_select_text(atoi(url));back();break;
+    case SELECT_SUB:captions_clear();video_select_text(atoi(url));back();controls_wake();break;
+    case LOAD_CAPTION:if(request(CAPTION_JOB,s->token,url,NULL))s->pending++;break;
     case TEST_CLIP:{
         char clip[1024];snprintf(clip,sizeof clip,"file://%s/test.mp4",assets);play(clip,NULL);break;}
     case OPEN_LANG:{
@@ -355,7 +376,9 @@ void companion_input(const char *route,const char *value,const char *type){
         else if(!strcmp(value,"left"))move_focus(-1,0);else if(!strcmp(value,"right"))move_focus(1,0);
         else if(!strcmp(value,"ok"))activate();else if(!strcmp(value,"back") && depth)back();
         else if(!strcmp(value,"home"))while(depth)back();
-        else if(!strcmp(value,"playpause") && s->page==PLAYER){if(video_state()==VID_PAUSED)video_play();else video_pause();}
+        else if((!strcmp(value,"playpause") || !strcmp(value,"play_pause")) && s->page==PLAYER){controls_wake();if(video_state()==VID_PAUSED)video_play();else video_pause();}
+        else if(!strcmp(value,"seek_fwd") && s->page==PLAYER)video_seek(video_time()+10);
+        else if(!strcmp(value,"seek_back") && s->page==PLAYER)video_seek(video_time()-10);
     }else if(!strcmp(route,"search")){while(depth)back();search_for(value);}
     else if(!strcmp(route,"cast")){while(depth)back();cJSON *m=cJSON_CreateObject();put_string(m,"type",type);put_string(m,"id",value);put_string(m,"name",value);open_detail(m);cJSON_Delete(m);}
 }
@@ -371,9 +394,12 @@ void handle_reply(Request *r){
     }
     Screen *s=NULL;for(int n=0;n<=depth;n++)if(stack[n].token==r->owner)s=&stack[n];
     if(!s)return;if(s->pending)s->pending--;
+    if(r->operation>=100){party_reply(s,r);return;}
     if(r->operation){account_reply(s,r);return;}
     if(r->error[0]){snprintf(s->note,sizeof s->note,"%s",r->error);return;}
     cJSON *v;
+    if(r->type==CAPTION_JOB){if(s==current() && captions_load(r->text)){video_select_text(-1);back();controls_wake();}else snprintf(s->note,sizeof s->note,"Unsupported subtitle format.");return;}
+    if(s->page==TRACKS){cJSON_ArrayForEach(v,cJSON_GetObjectItem(r->json,"subtitles"))if(web_url(field(v,"url")))row(s,LOAD_CAPTION,field(v,"lang"),NULL,field(v,"url"));return;}
     if(s->page==HOME){
         cJSON *features=cJSON_CreateArray();
         cJSON_ArrayForEach(v,cJSON_GetObjectItem(r->json,"metas")){

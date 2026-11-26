@@ -1,4 +1,5 @@
 #include "app.h"
+#include "captions.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,9 @@ void draw(void){
     Screen *s=current();bool film=s->page==PLAYER;
     view_begin(film);
     if(film){
+        const char *sub=caption_at(video_time());
+        if(*sub){int y=controls_visible()?356:606;fill((SDL_Rect){80,y,1120,68},0x101010,195);wrapped(103,y+7,1074,sub);}
+        if(!controls_visible()){count=0;view_end();return;}
         fill((SDL_Rect){0,434,WIDTH,286},0x111116,225);
         label(48,446,1100,BODY,0xffffff,s->title);
         double duration=video_duration(),now=video_time();

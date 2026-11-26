@@ -9,7 +9,8 @@ typedef enum { OPEN_MOVIES,OPEN_SHOWS,SEARCH,OPEN_LIBRARY,OPEN_SETTINGS,OPEN_ADD
                SELECT_AUDIO,SELECT_SUB,OPEN_LANG,SET_LANG,OPEN_PROFILES,SET_PROFILE,ADD_PROFILE,
                OPEN_DOWNLOADS,GET_FILE,PLAY_LOCAL,TEST_CLIP,GO_BACK,RETRY,INPUT_KEY,
                PLAY_FIRST,TOGGLE_AUTO,CONTINUE_ROW,PICK,FORGET_FILE,ADD_KIDS,NEW_PIN,UNLOCK,
-               OPEN_ACCOUNT,PAIR_ACCOUNT,SYNC_ACCOUNT,DISCONNECT_ACCOUNT,OPEN_REMOTE,STOP_REMOTE } Action;
+               OPEN_ACCOUNT,PAIR_ACCOUNT,SYNC_ACCOUNT,DISCONNECT_ACCOUNT,OPEN_REMOTE,STOP_REMOTE,LOAD_CAPTION,TRAILER,
+               HOST_PARTY,JOIN_PARTY,LEAVE_PARTY } Action;
 typedef struct {
     Page page;
     unsigned token;
@@ -39,9 +40,15 @@ void hit(int x,int y,bool click);
 void type_text(const char *text);
 void erase_text(void);
 void player_tick(void);
+void controls_wake(void);
+bool controls_visible(void);
 void init_state(void);
 void reload_language(void);
 void capture_progress(void);
+void party_start(Screen *s,const char *code);
+void party_leave(Screen *s);
+void party_reply(Screen *s,Request *r);
+void party_tick(Screen *s);
 void account_action(Action a);
 void account_reply(Screen *s,Request *r);
 void account_tick(void);

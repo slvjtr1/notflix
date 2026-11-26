@@ -1,7 +1,7 @@
 #pragma once
 #include <SDL.h>
 #include "catalog.h"
-typedef enum { JSON_JOB, ART_JOB, DOWNLOAD_JOB } JobType;
+typedef enum { JSON_JOB, ART_JOB, DOWNLOAD_JOB, CAPTION_JOB } JobType;
 typedef struct Request {
     struct Request *next;
     JobType type;
@@ -10,6 +10,7 @@ typedef struct Request {
     int operation;
     char error[120];
     cJSON *json;
+    char *text;
     SDL_Surface *image;
 } Request;
 bool client_start(const char *ca);

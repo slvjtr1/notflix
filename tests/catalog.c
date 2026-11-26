@@ -1,5 +1,6 @@
 #include "catalog.h"
 #include "family.h"
+#include "captions.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,9 @@ int main(void){
     put_string(title,"certification","PG-13");assert(!allowed_title(p,title));
     assert(!pin_set(p,"abc1") && pin_set(p,"0462") && pin_matches(p,"0462") && !pin_matches(p,"0642"));
     cJSON_Delete(p);cJSON_Delete(title);
+    char subs[]="WEBVTT\n\n00:01.000 --> 00:03.000\nOne\n\n2\n00:00:05,300 --> 00:00:06,000\n<i>Two</i>\nlines";
+    assert(captions_load(subs));assert(!*caption_at(0));assert(!strcmp(caption_at(1),"One"));
+    assert(!*caption_at(3));assert(!strcmp(caption_at(5.5),"Two lines"));captions_clear();
     puts("Catalog, stream, family restrictions and durable storage checks passed.");
 }
 

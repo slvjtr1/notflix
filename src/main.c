@@ -63,7 +63,7 @@ static void events(SDL_Event *e){
     if(e->type==SDL_TEXTINPUT){type_text(e->text.text);return;}
     if(e->type==SDL_MOUSEMOTION || (e->type==SDL_MOUSEBUTTONUP && e->button.button==SDL_BUTTON_LEFT)){
         int x=e->type==SDL_MOUSEMOTION?e->motion.x:e->button.x,y=e->type==SDL_MOUSEMOTION?e->motion.y:e->button.y;
-        hit(x,y,e->type==SDL_MOUSEBUTTONUP);return;
+        if(s->page==PLAYER)controls_wake();hit(x,y,e->type==SDL_MOUSEBUTTONUP);return;
     }
     if(e->type!=SDL_KEYDOWN)return;
     SDL_Keycode k=e->key.keysym.sym;
@@ -71,6 +71,7 @@ static void events(SDL_Event *e){
     if(e->key.keysym.scancode==SDL_WEBOS_SCANCODE_BACK)k=SDLK_ESCAPE;
     if(e->key.keysym.scancode==SDL_WEBOS_SCANCODE_EXIT){running=false;return;}
 #endif
+    if(s->page==PLAYER){bool visible=controls_visible();controls_wake();if(!visible && (k==SDLK_RETURN || k==SDLK_SELECT))return;}
     switch(k){
     case SDLK_UP:move_focus(0,-1);break;case SDLK_DOWN:move_focus(0,1);break;
     case SDLK_LEFT:move_focus(-1,0);break;case SDLK_RIGHT:move_focus(1,0);break;
@@ -81,6 +82,29 @@ static void events(SDL_Event *e){
     case SDLK_AUDIOSTOP:if(s->page==PLAYER)back();break;
     default:break;
     }
+}
+static bool wait_for_jobs(void){
+    Uint32 start=SDL_GetTicks();
+    while(current()->pending && SDL_GetTicks()-start<8000){
+        Request *r;while((r=completed())){handle_reply(r);request_free(r);}SDL_Delay(2);
+    }
+    return !current()->pending;
+}
+static bool fixture_test(const char *manifest){
+    cJSON_DeleteItemFromObject(db,"addons");array_field(db,"addons");
+    current()->focus=6;activate();activate();activate();
+    if(current()->page!=KEYBOARD)return false;
+    type_text(manifest);current()->focus=cJSON_GetArraySize(current()->rows)-1;activate();
+    if(!wait_for_jobs() || cJSON_GetArraySize(array_field(db,"addons"))!=1)return false;
+    while(depth)back();current()->focus=0;activate();activate();
+    if(!wait_for_jobs() || current()->page!=TITLES || cJSON_GetArraySize(current()->rows)!=1)return false;
+    activate();if(!wait_for_jobs() || current()->page!=DETAIL)return false;
+    current()->focus=1;activate();if(cJSON_GetArraySize(array_field(profile,"library"))!=1)return false;
+    current()->focus=0;activate();if(!wait_for_jobs() || current()->page!=SOURCES || cJSON_GetArraySize(current()->rows)!=1)return false;
+    activate();if(current()->page!=PLAYER)return false;video_seek(45);back();if(cJSON_GetArraySize(array_field(profile,"history"))!=1)return false;
+    while(depth)back();current()->focus=2;activate();type_text("test / show");current()->focus=cJSON_GetArraySize(current()->rows)-1;activate();
+    if(!wait_for_jobs() || cJSON_GetArraySize(current()->rows)!=1)return false;
+    while(depth)back();return true;
 }
 static bool navigation_test(void){
     draw();move_focus(1,0);move_focus(-1,0);activate();
@@ -120,7 +144,7 @@ int main(int argc,char **argv){
     char ca[1024];snprintf(ca,sizeof ca,"%s/ca.pem",assets);
     if(!client_start(ca) || !view_open(renderer,assets)){fprintf(stderr,"Notflix assets: %s\n",SDL_GetError());return 1;}
     init_state();load_home();int result=0;
-    if(test_mode)result=navigation_test()?0:2;
+    if(test_mode){bool ok=navigation_test();const char *fixture=getenv("NOTFLIX_TEST_MANIFEST");if(ok && fixture)ok=fixture_test(fixture);result=ok?0:2;}
     bool text_active=false;
     Uint64 last=0,start=SDL_GetPerformanceCounter(),freq=SDL_GetPerformanceFrequency();
     unsigned frames=0,missed=0;double worst=0;
