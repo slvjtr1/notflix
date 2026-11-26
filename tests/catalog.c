@@ -1,4 +1,5 @@
 #include "catalog.h"
+#include "family.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,12 @@ int main(void){
     char path[]="/tmp/notflix-unit-XXXXXX";int fd=mkstemp(path);assert(fd>=0);close(fd);
     assert(save_json(path,s));cJSON *disk=read_json(path);assert(!strcmp(field(disk,"name"),"Film"));
     assert(cJSON_GetObjectItem(disk,"position")->valueint==18);unlink(path);cJSON_Delete(disk);cJSON_Delete(s);
-    puts("Catalog, stream and durable storage checks passed.");
+    cJSON *p=cJSON_CreateObject(),*title=cJSON_CreateObject();
+    assert(allowed_title(p,title));put_number(p,"maxAge",7);assert(!allowed_title(p,title));
+    put_string(title,"certification","PG");assert(allowed_title(p,title));
+    put_string(title,"certification","PG-13");assert(!allowed_title(p,title));
+    assert(!pin_set(p,"abc1") && pin_set(p,"0462") && pin_matches(p,"0462") && !pin_matches(p,"0642"));
+    cJSON_Delete(p);cJSON_Delete(title);
+    puts("Catalog, stream, family restrictions and durable storage checks passed.");
 }
 

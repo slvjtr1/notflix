@@ -87,7 +87,13 @@ static void perform(Request *r) {
         if(!r->json) snprintf(r->error,sizeof r->error,"Invalid provider response");
     } else if(!r->error[0] && b.size) {
         SDL_RWops *rw=SDL_RWFromConstMem(b.bytes,(int)b.size);
-        if(rw) r->image=IMG_Load_RW(rw,1);
+        SDL_Surface *decoded=rw?IMG_Load_RW(rw,1):NULL;
+        if(decoded && (decoded->w>640 || decoded->h>640)){
+            double scale=640.0/SDL_max(decoded->w,decoded->h);
+            r->image=SDL_CreateRGBSurfaceWithFormat(0,SDL_max(1,(int)(decoded->w*scale)),SDL_max(1,(int)(decoded->h*scale)),32,SDL_PIXELFORMAT_RGBA32);
+            if(r->image)SDL_BlitScaled(decoded,NULL,r->image,NULL);
+            SDL_FreeSurface(decoded);
+        }else r->image=decoded;
     }
 done:
     curl_slist_free_all(headers);curl_easy_cleanup(h); free(b.bytes);

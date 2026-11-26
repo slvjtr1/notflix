@@ -1,5 +1,6 @@
 #include "view.h"
 #include <SDL_ttf.h>
+#include "qrcodegen.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,7 +8,8 @@
 
 static SDL_Renderer *ren;
 static TTF_Font *fonts[4];
-static SDL_Texture *glow;
+static SDL_Texture *glow,*qr_texture;
+static char qr_link[1024];
 static unsigned frame;
 typedef struct { char *key; unsigned used,color; int font,w,h; SDL_Texture *tex; } Text;
 typedef struct { char *url; unsigned used, retry; bool pending; SDL_Texture *tex; } Art;
@@ -98,10 +100,26 @@ void art_ready(Request *r) {
         a->retry=SDL_GetTicks()+60000;return;
     }
 }
+void pairing_code(int x,int y,int size,const char *url){
+    if(!url || !*url || strlen(url)>=sizeof qr_link)return;
+    if(strcmp(url,qr_link)){
+        SDL_DestroyTexture(qr_texture);qr_texture=NULL;snprintf(qr_link,sizeof qr_link,"%s",url);
+        uint8_t bits[qrcodegen_BUFFER_LEN_FOR_VERSION(12)],temp[sizeof bits];
+        if(!qrcodegen_encodeText(url,temp,bits,qrcodegen_Ecc_MEDIUM,1,12,qrcodegen_Mask_AUTO,true))return;
+        int dim=qrcodegen_getSize(bits);
+        SDL_Surface *s=SDL_CreateRGBSurfaceWithFormat(0,dim+8,dim+8,32,SDL_PIXELFORMAT_RGBA32);
+        if(!s)return;
+        SDL_FillRect(s,NULL,SDL_MapRGBA(s->format,255,255,255,255));
+        for(int j=0;j<dim;j++)for(int i=0;i<dim;i++)if(qrcodegen_getModule(bits,i,j)){
+            SDL_Rect p={i+4,j+4,1,1};SDL_FillRect(s,&p,SDL_MapRGBA(s->format,0,0,0,255));}
+        qr_texture=SDL_CreateTextureFromSurface(ren,s);SDL_FreeSurface(s);
+    }
+    SDL_Rect dst={x,y,size,size};if(qr_texture)SDL_RenderCopy(ren,qr_texture,NULL,&dst);
+}
 void view_end(void){SDL_RenderPresent(ren);}
 void view_close(void){
     for(size_t i=0;i<SDL_arraysize(labels);i++){free(labels[i].key);SDL_DestroyTexture(labels[i].tex);}
     for(size_t i=0;i<SDL_arraysize(images);i++){free(images[i].url);SDL_DestroyTexture(images[i].tex);}
-    SDL_DestroyTexture(glow);
+    SDL_DestroyTexture(glow);SDL_DestroyTexture(qr_texture);
     for(int i=0;i<4;i++)if(fonts[i])TTF_CloseFont(fonts[i]);
 }

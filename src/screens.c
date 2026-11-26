@@ -1,6 +1,7 @@
 #include "app.h"
 #include "platform/plat.h"
 #include "family.h"
+#include "companion.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@ static double resume_at;
 static char download_path[1024], download_profile[96];
 static cJSON *downloading;
 static const char *default_manifest="https://v3-cinemeta.strem.io/manifest.json";
+static bool fetch(Screen *s,const char *url);
 
 Screen *current(void){return &stack[depth];}
 const char *tr(const char *en){const char *s=field(strings,en);return *s?s:en;}
@@ -85,6 +87,7 @@ void load_home(void){
     row(s,CONTINUE_ROW,tr("Continue Watching"),NULL,NULL);row(s,PICK,tr("What to watch today?"),NULL,NULL);
     row(s,OPEN_SETTINGS,tr("Settings"),NULL,NULL);
     snprintf(s->note,sizeof s->note,"%s",field(profile,"name"));
+    if(!test_mode)fetch(s,"https://v3-cinemeta.strem.io/catalog/movie/top.json");
 }
 
 static bool fetch(Screen *s,const char *url){
@@ -209,6 +212,7 @@ static void settings(void){
     row(s,OPEN_PROFILES,tr("Profiles"),NULL,NULL);row(s,OPEN_LANG,tr("Language"),NULL,NULL);
     row(s,OPEN_DOWNLOADS,tr("Downloads"),NULL,NULL);row(s,TOGGLE_AUTO,cJSON_IsTrue(cJSON_GetObjectItem(db,"autoplay"))?"Autoplay · On":"Autoplay · Off",NULL,NULL);
     row(s,TEST_CLIP,tr("Playback test"),NULL,NULL);row(s,OPEN_ACCOUNT,tr("Nuvio account"),NULL,NULL);
+    row(s,OPEN_REMOTE,tr("Phone remote"),NULL,NULL);
 }
 static void addon_list(Screen *s){
     cJSON_Delete(s->rows);s->rows=cJSON_CreateArray();row(s,ADD_MANIFEST,tr("Add manifest URL"),NULL,NULL);
@@ -269,11 +273,18 @@ void activate(void){
     case SEARCH:case DIRECT_URL:case ADD_MANIFEST:case ADD_PROFILE: keyboard(a,field(r,"name"));break;
     case ADD_KIDS:if(*field(db,"pinHash"))keyboard(ADD_KIDS,tr("Name the KIDS profile"));else keyboard(NEW_PIN,tr("Set a four-digit parent PIN"));break;
     case UNLOCK:keyboard(UNLOCK,tr("Enter parent PIN"));break;
+    case OPEN_REMOTE:{
+        p=push(CONFIRM,tr("Phone remote"));if(!p)break;
+        if(companion_start(p->input,sizeof p->input)){snprintf(p->note,sizeof p->note,"Scan with your phone, or open %.170s",p->input);
+            row(p,STOP_REMOTE,tr("Disconnect phone remote"),NULL,NULL);}
+        else snprintf(p->note,sizeof p->note,"Could not open a local network connection.");
+        break;}
+    case STOP_REMOTE:companion_stop();back();break;
     case OPEN_ACCOUNT:case PAIR_ACCOUNT:case SYNC_ACCOUNT:case DISCONNECT_ACCOUNT:account_action(a);break;
     case OPEN_SETTINGS:settings();break;
     case OPEN_ADDONS:p=push(ADDONS,tr("Addons"));if(p)addon_list(p);break;
     case OPEN_CATALOG:p=push(TITLES,field(r,"name"));if(p){p->grid=true;fetch(p,url);}break;
-    case OPEN_TITLE:open_detail(m);break;
+    case OPEN_TITLE:if(s->page==HOME && cJSON_GetArraySize(s->meta))m=cJSON_GetArrayItem(s->meta,(SDL_GetTicks()/14000)%cJSON_GetArraySize(s->meta));open_detail(m);break;
     case FETCH_STREAMS:sources(m);break;
     case PLAY_STREAM:play(url,s->meta);break;
     case OPEN_LIBRARY:case CONTINUE_ROW:
@@ -323,7 +334,7 @@ void activate(void){
         p=push(PROFILES,tr("Profiles"));if(!p)break;row(p,ADD_PROFILE,tr("Add profile"),NULL,NULL);row(p,ADD_KIDS,tr("Add KIDS profile (ages 7 and under)"),NULL,NULL);
         cJSON *v;cJSON_ArrayForEach(v,array_field(db,"profiles"))row(p,SET_PROFILE,field(v,"name"),v,NULL);break;}
     case SET_PROFILE:{
-        int i=s->focus-2;profile=cJSON_GetArrayItem(array_field(db,"profiles"),i);put_number(db,"profileIndex",i);
+        companion_stop();int i=s->focus-2;profile=cJSON_GetArrayItem(array_field(db,"profiles"),i);put_number(db,"profileIndex",i);
         save();while(depth)back();load_home();break;}
     case TOGGLE_AUTO:{
         bool on=cJSON_IsTrue(cJSON_GetObjectItem(db,"autoplay"));
@@ -335,6 +346,18 @@ void activate(void){
     case GO_BACK:back();break;
     default:break;
     }
+}
+void companion_input(const char *route,const char *value,const char *type){
+    if(kids_active(profile))return;
+    Screen *s=current();if(s->page==ACCOUNT || (s->page==KEYBOARD && (s->mode==UNLOCK || s->mode==NEW_PIN)))return;
+    if(!strcmp(route,"remote")){
+        if(!strcmp(value,"up"))move_focus(0,-1);else if(!strcmp(value,"down"))move_focus(0,1);
+        else if(!strcmp(value,"left"))move_focus(-1,0);else if(!strcmp(value,"right"))move_focus(1,0);
+        else if(!strcmp(value,"ok"))activate();else if(!strcmp(value,"back") && depth)back();
+        else if(!strcmp(value,"home"))while(depth)back();
+        else if(!strcmp(value,"playpause") && s->page==PLAYER){if(video_state()==VID_PAUSED)video_play();else video_pause();}
+    }else if(!strcmp(route,"search")){while(depth)back();search_for(value);}
+    else if(!strcmp(route,"cast")){while(depth)back();cJSON *m=cJSON_CreateObject();put_string(m,"type",type);put_string(m,"id",value);put_string(m,"name",value);open_detail(m);cJSON_Delete(m);}
 }
 void handle_reply(Request *r){
     if(r->type==ART_JOB){art_ready(r);return;}
@@ -351,7 +374,15 @@ void handle_reply(Request *r){
     if(r->operation){account_reply(s,r);return;}
     if(r->error[0]){snprintf(s->note,sizeof s->note,"%s",r->error);return;}
     cJSON *v;
-    if(s->page==ADDONS){
+    if(s->page==HOME){
+        cJSON *features=cJSON_CreateArray();
+        cJSON_ArrayForEach(v,cJSON_GetObjectItem(r->json,"metas")){
+            if(cJSON_GetArraySize(features)>=8)break;
+            if(*field(v,"id") && *field(v,"name") && allowed_title(profile,v))cJSON_AddItemToArray(features,cJSON_Duplicate(v,1));
+        }
+        cJSON_Delete(s->meta);s->meta=features;
+        if(cJSON_GetArraySize(features))row(s,OPEN_TITLE,tr("Featured title"),cJSON_GetArrayItem(features,0),NULL);
+    }else if(s->page==ADDONS){
         if(!*field(r->json,"id") || !cJSON_IsArray(cJSON_GetObjectItem(r->json,"resources"))){snprintf(s->note,sizeof s->note,"Invalid addon manifest.");return;}
         cJSON *addons=array_field(db,"addons");
         cJSON_ArrayForEach(v,addons)if(!strcmp(field(v,"manifest"),r->url)){snprintf(s->note,sizeof s->note,"Already installed.");return;}

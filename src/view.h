@@ -10,3 +10,4 @@ void focus_ring(SDL_Rect rect);
 void poster(SDL_Rect rect,const char *url);
 void art_ready(Request *job);
 void view_end(void);
+void pairing_code(int x,int y,int size,const char *url);

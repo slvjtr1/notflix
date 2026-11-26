@@ -11,7 +11,7 @@ static const char *key(void){return field(profile,"nuvioPublicKey");}
 static const char *access_token(void){return field(profile,"nuvioAccess");}
 static void message(Screen *s,const char *text){snprintf(s->note,sizeof s->note,"%s",text);}
 static void menu(Screen *s){
-    cJSON_Delete(s->rows);s->rows=cJSON_CreateArray();s->focus=0;
+    cJSON_Delete(s->rows);s->rows=cJSON_CreateArray();s->focus=0;s->input[0]=0;
     if(*field(profile,"nuvioRefresh")){
         row(s,SYNC_ACCOUNT,tr("Import library and progress"),NULL,NULL);
         row(s,DISCONNECT_ACCOUNT,tr("Disconnect account"),NULL,NULL);
@@ -31,7 +31,7 @@ void account_action(Action a){
         for(size_t i=0;i<SDL_arraysize(keys);i++)cJSON_DeleteItemFromObject(profile,keys[i]);
         menu(s);message(s,"Account disconnected. Imported items stay in this profile.");save();return;
     }
-    if(a==SYNC_ACCOUNT){
+    if(a==SYNC_ACCOUNT){s->mode=0;
         cJSON *body=cJSON_CreateObject();put_string(body,"refresh_token",field(profile,"nuvioRefresh"));
         send(s,REFRESH,"/auth/v1/token?grant_type=refresh_token",body,false);cJSON_Delete(body);
     }
@@ -79,6 +79,7 @@ void account_reply(Screen *s,Request *r){
     case START:{
         if(!*field(v,"device_code") || !*field(v,"user_code")){message(s,"Missing pairing code.");break;}
         put_string(s->meta,"code",field(v,"device_code"));
+        const char *link=field(v,"verification_uri_complete");if(!strncmp(link,"https://nuvio.tv/",17))snprintf(s->input,sizeof s->input,"%s",link);
         snprintf(s->note,sizeof s->note,"Visit nuvio.tv/link on your phone and enter %s",field(v,"user_code"));
         cJSON_Delete(s->rows);s->rows=cJSON_CreateArray();row(s,GO_BACK,tr("Cancel"),NULL,NULL);
         poll_screen=s->token;next_poll=SDL_GetTicks()+4000;deadline=SDL_GetTicks()+600000;break;}

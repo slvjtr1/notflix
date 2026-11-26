@@ -1,4 +1,5 @@
 #include "app.h"
+#include "companion.h"
 #include "platform/plat.h"
 #include <SDL_image.h>
 #include <SDL_ttf.h>
@@ -131,7 +132,7 @@ int main(int argc,char **argv){
 #ifdef WEBOS
         plat_luna_pump();
 #endif
-        video_pump();player_tick();account_tick();draw();
+        video_pump();player_tick();account_tick();companion_tick();draw();
         Uint64 now=SDL_GetPerformanceCounter();
         if(last){double ms=(now-last)*1000.0/freq;unsigned slots=(unsigned)(ms/ (1000.0/60.0)+0.5);
             if(slots>1)missed+=slots-1;if(ms>worst)worst=ms;}
@@ -142,7 +143,7 @@ int main(int argc,char **argv){
         }
         if(app_behind())SDL_Delay(50);
     }
-    while(depth)back();free_screen(current());client_stop();view_close();
+    companion_stop();while(depth)back();free_screen(current());client_stop();view_close();
     cJSON_Delete(strings);cJSON_Delete(db);SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);
     IMG_Quit();TTF_Quit();SDL_Quit();curl_global_cleanup();return result;
 }

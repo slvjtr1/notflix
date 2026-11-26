@@ -41,7 +41,16 @@ void draw(void){
         label(982,454,250,SMALL,0xffffff,tm);
     }else{
         label(48,24,340,BRAND,0xe50914,"NOTFLIX");
-        label(48,111,1180,TITLE,0xf6f6f8,s->title);
+        cJSON *hero=NULL;
+        if(s->page==HOME && cJSON_GetArraySize(s->meta))hero=cJSON_GetArrayItem(s->meta,(SDL_GetTicks()/14000)%cJSON_GetArraySize(s->meta));
+        if(hero){
+            const char *image=field(hero,"background");if(!*image)image=field(hero,"poster");
+            poster((SDL_Rect){690,31,544,309},image);
+            label(51,124,540,SMALL,0xbebec8,tr("Featured title"));
+            label(48,158,625,TITLE,0xf6f6f8,field(hero,"name"));
+            label(51,223,610,BODY,0xdfdfe5,field(hero,"releaseInfo"));
+            wrapped(51,278,590,field(hero,"description"));
+        }else label(48,111,1180,TITLE,0xf6f6f8,s->title);
         if(s->page==KEYBOARD){
             fill((SDL_Rect){48,192,1184,53},0x292930,255);
             size_t len=strlen(s->input),off=len>73?len-73:0;
@@ -49,14 +58,14 @@ void draw(void){
             if(s->mode==UNLOCK || s->mode==NEW_PIN){char mask[16]={0};memset(mask,'*',SDL_min(len,sizeof mask-1));label(62,203,1150,BODY,0xffffff,mask);}
             else label(62,203,1150,BODY,0xffffff,s->input+off);
             if(s->note[0])label(55,635,1160,SMALL,0xffffff,s->note);
-        }else if(s->note[0])wrapped(50,177,1170,s->note);
+        }else if(s->note[0] && !hero)wrapped(50,177,1170,s->note);
     }
     int cols=columns(s),n=cJSON_GetArraySize(s->rows);
     int rows=film?2:s->grid?1:s->page==KEYBOARD?6:s->page==HOME?2:6;
-    int y0=film?521:s->grid?228:s->page==KEYBOARD?263:s->page==HOME?264:240;
+    int y0=film?521:s->grid?228:s->page==KEYBOARD?263:s->page==HOME?374:240;
     int gap=s->page==KEYBOARD?10:16;
     int width=(1184-(cols-1)*gap)/cols;
-    int height=film?52:s->grid?300:s->page==HOME?110:s->page==KEYBOARD?50:49;
+    int height=film?52:s->grid?300:s->page==HOME?108:s->page==KEYBOARD?50:49;
     base=SDL_max(0,(s->focus/cols-rows+1)*cols);count=SDL_min(n-base,cols*rows);
     for(int i=0;i<count;i++){
         int idx=base+i;SDL_Rect r={48+(i%cols)*(width+gap),y0+(i/cols)*(height+gap),width,height};
@@ -80,6 +89,7 @@ void draw(void){
         label(48,669,930,SMALL,0xa5a5af,footer);
         if(n){char counter[48];snprintf(counter,sizeof counter,"%d / %d",s->focus+1,n);label(1115,669,128,SMALL,0xa5a5af,counter);}
     }else if(s->note[0]) label(48,666,1180,SMALL,0xffffff,s->note);
+    if((s->page==CONFIRM || s->page==ACCOUNT) && web_url(s->input))pairing_code(906,315,285,s->input);
     view_end();
 }
 
