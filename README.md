@@ -7,7 +7,7 @@ A native C television client based on the Notflix 1.0.3 TV feature set. Navigate
 Download the ARM IPK and SHA256SUMS from [the webOS releases](https://github.com/slvjtr1/notflix/releases). In LG’s Developer Mode app, enable Developer Mode and Key Server, then connect the TV in webOS Dev Manager. Select **Install** and choose the IPK. The CLI equivalent for a configured device is:
 
 ```sh
-ares-install -d tv tv.notflix.native_0.1.1_arm.ipk
+ares-install -d tv tv.notflix.native_0.1.2_arm.ipk
 ares-launch -d tv tv.notflix.native
 ```
 

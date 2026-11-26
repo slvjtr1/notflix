@@ -16,6 +16,10 @@ int main(void) {
             "https://example.org/user/config/catalog/movie/trending/search=a%2Fb%20%26%20c.json"));
     free(u);
     assert(!resource_url("https://example.org/bad", "catalog", "movie", "top", NULL));
+    u = resource_url("https://example.org/manifest.json?config=demo#client", "meta", "movie", "id",
+                     NULL);
+    assert(u && !strcmp(u, "https://example.org/meta/movie/id.json?config=demo"));
+    free(u);
     assert(!web_url("file:///tmp/a") && !web_url("http:///") && !web_url("http://x/\na"));
     cJSON *m = cJSON_Parse("{\"resources\":[{\"name\":\"stream\",\"types\":[\"movie\"]}]}");
     assert(has_resource(m, "stream", "movie") && !has_resource(m, "stream", "series"));

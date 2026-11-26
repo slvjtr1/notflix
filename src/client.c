@@ -95,7 +95,7 @@ static void perform(Request *r) {
     curl_easy_setopt(h, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(h, CURLOPT_FAILONERROR, 1L);
     curl_easy_setopt(h, CURLOPT_ACCEPT_ENCODING, "");
-    curl_easy_setopt(h, CURLOPT_USERAGENT, "Notflix-webOS/0.1");
+    curl_easy_setopt(h, CURLOPT_USERAGENT, "Notflix-webOS/0.1.2");
     curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(h, CURLOPT_CONNECTTIMEOUT, 8L);
     curl_easy_setopt(h, CURLOPT_TIMEOUT, r->type == DOWNLOAD_JOB ? 0L : 18L);
@@ -136,16 +136,19 @@ static void perform(Request *r) {
     } else if (!r->error[0] && b.size) {
         SDL_RWops *rw = SDL_RWFromConstMem(b.bytes, (int)b.size);
         SDL_Surface *decoded = rw ? IMG_Load_RW(rw, 1) : NULL;
-        if (decoded && (decoded->w > 640 || decoded->h > 640)) {
-            double scale = 640.0 / SDL_max(decoded->w, decoded->h);
+        int max_side = r->path && !strcmp(r->path, "banner") ? 640 : 300;
+        if (decoded && (decoded->w > max_side || decoded->h > max_side)) {
+            double scale = (double)max_side / SDL_max(decoded->w, decoded->h);
             r->image = SDL_CreateRGBSurfaceWithFormat(0, SDL_max(1, (int)(decoded->w * scale)),
                                                       SDL_max(1, (int)(decoded->h * scale)), 32,
                                                       SDL_PIXELFORMAT_RGBA32);
             if (r->image)
                 SDL_BlitScaled(decoded, NULL, r->image, NULL);
             SDL_FreeSurface(decoded);
-        } else
-            r->image = decoded;
+        } else if (decoded) {
+            r->image = SDL_ConvertSurfaceFormat(decoded, SDL_PIXELFORMAT_RGBA32, 0);
+            SDL_FreeSurface(decoded);
+        }
     }
 done:
     curl_slist_free_all(headers);
@@ -154,6 +157,7 @@ done:
 }
 static int worker(void *ctx) {
     Queue *q = ctx;
+    SDL_SetThreadPriority(SDL_THREAD_PRIORITY_LOW);
     for (;;) {
         SDL_LockMutex(lock);
         while (!SDL_AtomicGet(&quitting) && !q->first)

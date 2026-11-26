@@ -15,7 +15,7 @@ static int step;
 static unsigned frames, missed, video_frames, artwork_items;
 static Uint64 start, last, freq;
 static double worst, video_seconds;
-static Uint32 next_key;
+static Uint32 next_key, checkpoint;
 static FILE *report;
 static const char *names[] = {"cold catalog", "warm catalog", "held arrows", "screen transitions",
                               "player overlay"};
@@ -73,9 +73,10 @@ static void catalog_page(void) {
     if (request(JSON_JOB, s->token, "https://v3-cinemeta.strem.io/catalog/movie/top.json", NULL))
         s->pending++;
 }
+static int scenario(void) { return (step / 3 + 4) % 5; }
 static void enter(void) {
     close_pages();
-    int scene = step / 3;
+    int scene = scenario();
     if (scene == 0)
         view_reset_posters();
     if (scene <= 2)
@@ -96,6 +97,7 @@ static void enter(void) {
     start = SDL_GetPerformanceCounter();
     last = 0;
     next_key = SDL_GetTicks() + 120;
+    checkpoint = SDL_GetTicks() + 10000;
     entered = true;
 }
 void bench_tick(void) {
@@ -104,7 +106,7 @@ void bench_tick(void) {
     if (!entered)
         enter();
     Screen *s = current();
-    int scene = step / 3;
+    int scene = scenario();
     if (s->page == TITLES) {
         unsigned n = cJSON_GetArraySize(s->rows);
         if (n > artwork_items)
@@ -116,6 +118,12 @@ void bench_tick(void) {
             video_seconds = video_time();
     }
     Uint32 t = SDL_GetTicks();
+    if (scene == 4 && SDL_TICKS_PASSED(t, checkpoint)) {
+        fprintf(report, "media state %d, position %.2f, duration %.2f, playing frames %u, %s\n",
+                video_state(), video_time(), video_duration(), video_frames, video_error());
+        fflush(report);
+        checkpoint = t + 10000;
+    }
     if (!SDL_TICKS_PASSED(t, next_key))
         return;
     next_key = t + (scene == 2 ? 110 : scene == 3 ? 500 : scene == 4 ? 850 : 400);
@@ -152,7 +160,7 @@ void bench_frame(void) {
     frames++;
     if (now - start < 60 * freq)
         return;
-    fprintf(report, "%s\t%d\t%.2f\t%u\t%.2f\t%u\t%u\t%.2f\n", names[step / 3], step % 3 + 1,
+    fprintf(report, "%s\t%d\t%.2f\t%u\t%.2f\t%u\t%u\t%.2f\n", names[scenario()], step % 3 + 1,
             frames * (double)freq / (now - start), missed, worst, artwork_items, video_frames,
             video_seconds);
     fflush(report);

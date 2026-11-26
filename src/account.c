@@ -354,7 +354,8 @@ void account_reply(Screen *s, Request *r) {
             bool exists = false;
             cJSON *local;
             cJSON_ArrayForEach(
-                local, array_field(db, "addons")) if (!strcmp(manifest, field(local, "manifest")))
+                local,
+                array_field(profile, "addons")) if (!strcmp(manifest, field(local, "manifest")))
                 exists = true;
             if (!exists && request(JSON_JOB, s->token, manifest, NULL))
                 s->pending++;

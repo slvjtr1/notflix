@@ -32,11 +32,13 @@ char *resource_url(const char *manifest, const char *resource, const char *type,
     char *t = curl_easy_escape(NULL, type, 0), *i = curl_easy_escape(NULL, id, 0);
     char *q = search ? curl_easy_escape(NULL, search, 0) : NULL, *out = NULL;
     if (t && i && (!search || q)) {
-        size_t cap = len + strlen(resource) + strlen(t) + strlen(i) + (q ? strlen(q) : 0) + 32;
+        size_t query = tail && *tail == '?' ? strcspn(tail, "#") : 0;
+        size_t cap =
+            len + strlen(resource) + strlen(t) + strlen(i) + (q ? strlen(q) : 0) + query + 32;
         out = malloc(cap);
         if (out)
-            snprintf(out, cap, "%.*s/%s/%s/%s%s%s.json", (int)len, manifest, resource, t, i,
-                     q ? "/search=" : "", q ? q : "");
+            snprintf(out, cap, "%.*s/%s/%s/%s%s%s.json%.*s", (int)len, manifest, resource, t, i,
+                     q ? "/search=" : "", q ? q : "", (int)query, query ? tail : "");
     }
     curl_free(t);
     curl_free(i);

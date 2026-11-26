@@ -184,8 +184,8 @@ static bool wait_for_jobs(void) {
     return !current()->pending;
 }
 static bool fixture_test(const char *manifest) {
-    cJSON_DeleteItemFromObject(db, "addons");
-    array_field(db, "addons");
+    cJSON_DeleteItemFromObject(profile, "addons");
+    array_field(profile, "addons");
     current()->focus = 6;
     activate();
     activate();
@@ -195,7 +195,7 @@ static bool fixture_test(const char *manifest) {
     type_text(manifest);
     current()->focus = cJSON_GetArraySize(current()->rows) - 1;
     activate();
-    if (!wait_for_jobs() || cJSON_GetArraySize(array_field(db, "addons")) != 1)
+    if (!wait_for_jobs() || cJSON_GetArraySize(array_field(profile, "addons")) != 1)
         return false;
     while (depth)
         back();
@@ -302,7 +302,7 @@ int main(int argc, char **argv) {
     if (!diagnostics)
         diagnostics = stderr;
     setvbuf(diagnostics, NULL, _IOLBF, 0);
-    fprintf(diagnostics, "Starting Notflix 0.1.1\n");
+    fprintf(diagnostics, "Starting Notflix 0.1.2\n");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) || TTF_Init() ||
         curl_global_init(CURL_GLOBAL_DEFAULT)) {
         fprintf(diagnostics, "Platform init: %s\n", SDL_GetError());
@@ -376,8 +376,11 @@ int main(int argc, char **argv) {
         }
         Request *r;
         while ((r = completed())) {
+            bool uploaded = r->type == ART_JOB && r->image;
             handle_reply(r);
             request_free(r);
+            if (uploaded)
+                break;
         }
 #ifdef WEBOS
         plat_luna_pump();

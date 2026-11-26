@@ -145,7 +145,7 @@ void poster(SDL_Rect r, const char *url) {
         return;
     a->used = frame;
     if (!a->tex && !a->pending && pending < 5 && SDL_TICKS_PASSED(SDL_GetTicks(), a->retry))
-        a->pending = request(ART_JOB, 0, url, NULL);
+        a->pending = request(ART_JOB, 0, url, r.w > 360 ? "banner" : "poster");
     if (a->tex)
         SDL_RenderCopy(ren, a->tex, NULL, &r);
 }

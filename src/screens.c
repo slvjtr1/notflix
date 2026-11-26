@@ -48,24 +48,8 @@ void save(void) {
     if (!test_mode && !save_json(state_path, db))
         snprintf(current()->note, sizeof current()->note, "Could not save changes to TV storage.");
 }
-void init_state(void) {
-    db = test_mode ? NULL : read_json(state_path);
-    if (!cJSON_IsObject(db)) {
-        cJSON_Delete(db);
-        db = cJSON_CreateObject();
-    }
-    cJSON *profiles = array_field(db, "profiles");
-    if (!cJSON_GetArraySize(profiles)) {
-        cJSON *p = cJSON_CreateObject();
-        put_string(p, "name", "Guest");
-        cJSON_AddItemToArray(profiles, p);
-    }
-    cJSON *selected = cJSON_GetObjectItem(db, "profileIndex");
-    int index = cJSON_IsNumber(selected) ? selected->valueint : 0;
-    profile = cJSON_GetArrayItem(profiles, index < 0 ? 0 : index);
-    if (!profile)
-        profile = cJSON_GetArrayItem(profiles, 0);
-    cJSON *addons = array_field(db, "addons");
+static void seed_catalog(void) {
+    cJSON *addons = array_field(profile, "addons");
     if (!cJSON_GetArraySize(addons)) {
         cJSON *m = cJSON_CreateObject();
         put_string(m, "name", "Cinemeta");
@@ -86,6 +70,31 @@ void init_state(void) {
         }
         cJSON_AddItemToArray(addons, m);
     }
+}
+void init_state(void) {
+    db = test_mode ? NULL : read_json(state_path);
+    if (!cJSON_IsObject(db)) {
+        cJSON_Delete(db);
+        db = cJSON_CreateObject();
+    }
+    cJSON *profiles = array_field(db, "profiles");
+    if (!cJSON_GetArraySize(profiles)) {
+        cJSON *p = cJSON_CreateObject();
+        put_string(p, "name", "Guest");
+        cJSON_AddItemToArray(profiles, p);
+    }
+    cJSON *selected = cJSON_GetObjectItem(db, "profileIndex");
+    int index = cJSON_IsNumber(selected) ? selected->valueint : 0;
+    profile = cJSON_GetArrayItem(profiles, index < 0 ? 0 : index);
+    if (!profile)
+        profile = cJSON_GetArrayItem(profiles, 0);
+    cJSON *primary = cJSON_GetArrayItem(profiles, 0);
+    cJSON *legacy = cJSON_DetachItemFromObjectCaseSensitive(db, "addons");
+    if (legacy && !cJSON_GetObjectItem(primary, "addons"))
+        cJSON_AddItemToObject(primary, "addons", legacy);
+    else
+        cJSON_Delete(legacy);
+    seed_catalog();
     reload_language();
 }
 void free_screen(Screen *s) {
@@ -170,7 +179,7 @@ static void catalogs(const char *type) {
     if (!s)
         return;
     cJSON *m, *c;
-    cJSON_ArrayForEach(m, array_field(db, "addons"))
+    cJSON_ArrayForEach(m, array_field(profile, "addons"))
         cJSON_ArrayForEach(c, cJSON_GetObjectItem(m, "catalogs")) {
         if (strcmp(field(c, "type"), type))
             continue;
@@ -195,7 +204,7 @@ static void search_for(const char *term) {
         return;
     s->grid = true;
     cJSON *m, *c;
-    cJSON_ArrayForEach(m, array_field(db, "addons"))
+    cJSON_ArrayForEach(m, array_field(profile, "addons"))
         cJSON_ArrayForEach(c, cJSON_GetObjectItem(m, "catalogs")) if (searchable(c)) {
         char *u =
             resource_url(field(m, "manifest"), "catalog", field(c, "type"), field(c, "id"), term);
@@ -248,8 +257,8 @@ static void open_detail(cJSON *m) {
     s->meta = cJSON_Duplicate(m, 1);
     detail_actions(s);
     cJSON *a;
-    cJSON_ArrayForEach(a,
-                       array_field(db, "addons")) if (has_resource(a, "meta", field(m, "type"))) {
+    cJSON_ArrayForEach(
+        a, array_field(profile, "addons")) if (has_resource(a, "meta", field(m, "type"))) {
         char *u =
             resource_url(field(a, "manifest"), "meta", field(m, "type"), field(m, "id"), NULL);
         if (u) {
@@ -282,7 +291,7 @@ static void sources(cJSON *m) {
         put_string(s->meta, "name", name_of(m));
     s->automatic = cJSON_IsTrue(cJSON_GetObjectItem(db, "autoplay"));
     cJSON *a;
-    cJSON_ArrayForEach(a, array_field(db, "addons")) if (has_resource(a, "stream", type)) {
+    cJSON_ArrayForEach(a, array_field(profile, "addons")) if (has_resource(a, "stream", type)) {
         char *u = resource_url(field(a, "manifest"), "stream", type, field(m, "id"), NULL);
         fetch(s, u);
         free(u);
@@ -389,8 +398,17 @@ void player_tick(void) {
         capture_progress();
         last_save = SDL_GetTicks();
     }
-    if (video_state() == VID_ERROR)
+    if (video_state() == VID_ERROR) {
         snprintf(s->note, sizeof s->note, "%s", video_error());
+        Screen *list = depth ? &stack[depth - 1] : NULL;
+        if (list && list->page == SOURCES && list->mode &&
+            list->focus + 1 < cJSON_GetArraySize(list->rows)) {
+            back();
+            list->focus++;
+            activate();
+            return;
+        }
+    }
     if (video_state() == VID_ENDED)
         back();
 }
@@ -420,7 +438,7 @@ static void addon_list(Screen *s) {
     s->rows = cJSON_CreateArray();
     row(s, ADD_MANIFEST, tr("Add manifest URL"), NULL, NULL);
     cJSON *m;
-    cJSON_ArrayForEach(m, array_field(db, "addons")) {
+    cJSON_ArrayForEach(m, array_field(profile, "addons")) {
         if (!strcmp(field(m, "manifest"), default_manifest))
             continue;
         char n[256];
@@ -654,7 +672,7 @@ void activate(void) {
             }
             break;
         }
-        cJSON *list = array_field(db, "addons"), *v;
+        cJSON *list = array_field(profile, "addons"), *v;
         int i = 0;
         cJSON_ArrayForEach(v, list) {
             if (!strcmp(field(v, "manifest"), url)) {
@@ -727,8 +745,8 @@ void activate(void) {
                 row(p, LOAD_CAPTION, field(sub, "lang"), NULL, field(sub, "url"));
             cJSON *addon;
             cJSON_ArrayForEach(
-                addon, array_field(db, "addons")) if (has_resource(addon, "subtitles",
-                                                                   field(s->meta, "type"))) {
+                addon, array_field(profile, "addons")) if (has_resource(addon, "subtitles",
+                                                                        field(s->meta, "type"))) {
                 char *u = resource_url(field(addon, "manifest"), "subtitles",
                                        field(s->meta, "type"), field(s->meta, "id"), NULL);
                 fetch(p, u);
@@ -792,6 +810,7 @@ void activate(void) {
         companion_stop();
         int i = s->focus - 2;
         profile = cJSON_GetArrayItem(array_field(db, "profiles"), i);
+        seed_catalog();
         put_number(db, "profileIndex", i);
         save();
         while (depth)
@@ -916,6 +935,13 @@ void handle_reply(Request *r) {
     }
     if (r->error[0]) {
         snprintf(s->note, sizeof s->note, "%s", r->error);
+        if (s->page == SOURCES && s == current() && !s->pending && s->automatic &&
+            cJSON_GetArraySize(s->rows)) {
+            s->automatic = false;
+            s->mode = 1;
+            s->focus = 0;
+            activate();
+        }
         return;
     }
     cJSON *v;
@@ -951,7 +977,7 @@ void handle_reply(Request *r) {
             snprintf(s->note, sizeof s->note, "Invalid addon manifest.");
             return;
         }
-        cJSON *addons = array_field(db, "addons");
+        cJSON *addons = array_field(profile, "addons");
         cJSON_ArrayForEach(v, addons) if (!strcmp(field(v, "manifest"), r->url)) {
             snprintf(s->note, sizeof s->note, "Already installed.");
             return;
@@ -986,6 +1012,7 @@ void handle_reply(Request *r) {
         }
         if (!s->pending && s == current() && s->automatic && cJSON_GetArraySize(s->rows)) {
             s->automatic = false;
+            s->mode = 1;
             s->focus = 0;
             activate();
         }
